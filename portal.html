@@ -642,7 +642,7 @@ body.dark-mode #portal-theme-toggle {
 </div>
 
 <script>
-const API = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+const API = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '')
   ? 'http://localhost:5000'
   : 'https://smartbrgy-anabu-1g.onrender.com';
 const DOC_TYPES = {
@@ -657,6 +657,121 @@ const DOC_TYPES = {
 let selectedDocId = null;
 let tncScrolled = false;
 let lastCode = '';
+
+// ── Session persistence ──
+const _SK = 'smartbrgy_session';
+function _saveSession() {
+  sessionStorage.setItem(_SK, JSON.stringify({
+    screen:      document.querySelector('.screen.active')?.id || 'screen-terms',
+    docId:       selectedDocId,
+    tncScrolled,
+    tncChecked:  document.getElementById('tnc-agree')?.checked || false,
+    lastCode,
+    theme:       _portalDark,
+    confirmSummary: document.getElementById('conf-summary')?.innerHTML || '',
+    statusCode:  document.getElementById('status-code')?.value || '',
+    form: {
+      name:     document.getElementById('f-name')?.value     || '',
+      address:  document.getElementById('f-address')?.value  || '',
+      contact:  document.getElementById('f-contact')?.value  || '',
+      purpose:  document.getElementById('f-purpose')?.value  || '',
+      business: document.getElementById('f-business')?.value || '',
+      dob:      document.getElementById('f-dob')?.value      || '',
+    }
+  }));
+}
+function _restoreSession() {
+  const raw = sessionStorage.getItem(_SK);
+  if (!raw) return;
+  try {
+    const d = JSON.parse(raw);
+    // theme
+    if (d.theme) {
+      _portalDark = true;
+      document.body.classList.add('dark-mode');
+      const ti = document.getElementById('portal-theme-icon');
+      const tl = document.getElementById('portal-theme-label');
+      if (ti) ti.textContent  = '☀️';
+      if (tl) tl.textContent = 'Light Mode';
+    }
+    // form fields
+    if (d.form) {
+      ['name','address','contact','purpose','business'].forEach(k => {
+        const el = document.getElementById('f-'+k);
+        if (el) el.value = d.form[k] || '';
+      });
+      const dob = document.getElementById('f-dob');
+      if (dob) dob.value = d.form.dob || '';
+    }
+    // T&C state
+    if (d.tncScrolled) {
+      tncScrolled = true;
+      const btn = document.getElementById('tnc-agree');
+      if (btn) btn.disabled = false;
+      const notice = document.getElementById('tnc-notice');
+      if (notice) {
+        notice.innerHTML = '✅ Nabasa mo na ang lahat ng tuntunin — maaari nang kumilos';
+        notice.style.background   = '#d1fae5';
+        notice.style.borderColor  = '#6ee7b7';
+        notice.style.color        = '#065f46';
+      }
+    }
+    if (d.tncChecked) {
+      const cb = document.getElementById('tnc-agree');
+      const pb = document.getElementById('btn-proceed-terms');
+      if (cb) cb.checked = true;
+      if (pb) pb.disabled = false;
+    }
+    // selected document type
+    if (d.docId) {
+      selectedDocId = d.docId;
+      const doc = DOC_TYPES[d.docId];
+      const btn = document.querySelector(`.cert-btn[onclick*="'${d.docId}'"]`);
+      if (btn) btn.classList.add('selected');
+      if (doc) {
+        const di = document.getElementById('doc-sel-icon');
+        const dl = document.getElementById('doc-sel-label');
+        const df = document.getElementById('doc-sel-fee');
+        const di2 = document.getElementById('doc-selected-info');
+        const pb  = document.getElementById('btn-proceed-doc');
+        if (di)  di.textContent  = doc.icon;
+        if (dl)  dl.textContent  = doc.label;
+        if (df)  df.textContent  = doc.fee + ' · ' + doc.days;
+        if (di2) di2.style.display = 'flex';
+        if (pb)  pb.disabled = false;
+        const fl  = document.getElementById('form-doc-label');
+        const ff  = document.getElementById('form-doc-fee');
+        const fbf = document.getElementById('business-field');
+        if (fl)  fl.textContent = doc.icon + ' ' + doc.label;
+        if (ff)  ff.textContent = doc.fee;
+        if (fbf) fbf.style.display = d.docId === 'BBC' ? 'block' : 'none';
+      }
+    }
+    // confirmation screen data
+    if (d.lastCode) {
+      lastCode = d.lastCode;
+      const cc   = document.getElementById('conf-code');
+      const ccm  = document.getElementById('conf-code-mini');
+      const csum = document.getElementById('conf-summary');
+      if (cc)   cc.textContent  = d.lastCode;
+      if (ccm)  ccm.textContent = d.lastCode;
+      if (csum && d.confirmSummary) csum.innerHTML = d.confirmSummary;
+    }
+    // status screen
+    if (d.statusCode) {
+      const sc = document.getElementById('status-code');
+      if (sc) sc.value = d.statusCode;
+    }
+    // restore screen last (after all state is set)
+    if (d.screen && d.screen !== 'screen-terms') {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      const target = document.getElementById(d.screen);
+      if (target) target.classList.add('active');
+    }
+  } catch(e) {
+    sessionStorage.removeItem(_SK);
+  }
+}
 
 // ── Toast ──
 function toast(msg, type='') {
@@ -676,6 +791,7 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   window.scrollTo({ top:0, behavior:'smooth' });
+  _saveSession();
 }
 
 // ── T&C scroll detection ──
@@ -689,6 +805,7 @@ tncBox.addEventListener('scroll', function() {
       document.getElementById('tnc-notice').style.background = '#d1fae5';
       document.getElementById('tnc-notice').style.borderColor = '#6ee7b7';
       document.getElementById('tnc-notice').style.color = '#065f46';
+      _saveSession();
     }
   }
 });
@@ -696,6 +813,7 @@ tncBox.addEventListener('scroll', function() {
 function onTncCheck() {
   const checked = document.getElementById('tnc-agree').checked;
   document.getElementById('btn-proceed-terms').disabled = !checked;
+  _saveSession();
 }
 
 function proceedFromTerms() {
@@ -719,6 +837,7 @@ function selectDoc(id, el) {
   document.getElementById('doc-sel-fee').textContent = d.fee + ' · ' + d.days;
   document.getElementById('doc-selected-info').style.display = 'flex';
   document.getElementById('btn-proceed-doc').disabled = false;
+  _saveSession();
 }
 
 function proceedFromDoc() {
@@ -920,7 +1039,9 @@ function goToStatus() {
   showScreen('screen-status');
 }
 function newRequest() {
+  sessionStorage.removeItem(_SK);
   selectedDocId = null;
+  lastCode = '';
   document.querySelectorAll('.cert-btn').forEach(b=>b.classList.remove('selected'));
   document.getElementById('btn-proceed-doc').disabled = true;
   document.getElementById('doc-selected-info').style.display = 'none';
@@ -940,6 +1061,7 @@ function togglePortalTheme() {
   const label = document.getElementById('portal-theme-label');
   if (icon)  icon.textContent  = _portalDark ? '☀️' : '🌙';
   if (label) label.textContent = _portalDark ? 'Light Mode' : 'Dark Mode';
+  _saveSession();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -974,6 +1096,15 @@ document.addEventListener('DOMContentLoaded', () => {
   if (label) label.innerHTML = 'I have read and understood the <strong>Terms and Conditions</strong> of the SmartBrgy Portal. I agree to the collection and use of my personal information under <strong>Republic Act 10173 (Data Privacy Act of 2012)</strong> and Barangay Anabu I-G policies.';
   const proceed = document.getElementById('btn-proceed-terms');
   if (proceed) proceed.textContent = 'I Agree - Continue';
+
+  // Auto-save form fields on every keystroke
+  ['f-name','f-address','f-contact','f-purpose','f-business','f-dob'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', _saveSession);
+  });
+
+  // Restore session state after all DOM setup is done
+  _restoreSession();
 });
 </script>
 </body>
